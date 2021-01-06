@@ -1,6 +1,7 @@
 #include <iostream>
 #include <iomanip>
 #include <stdlib.h>
+#include <cmath>
 
 using namespace std;
 
@@ -17,8 +18,17 @@ typedef struct {
 } Parameter;
 Parameter param;
 
+const double DeadProbability[22] = {0.0, 0.001, 0.002, 0.004, 0.008, 0.014, 0.022, 0.032, 0.022, 0.014, 0.008, 0.004, 0.002, 0.001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+const double RecoveryRate[22] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.31, 0.43, 0.57, 0.73, 0.91, 1.0};
+
+#define INFECTION_THRESHOLD 0.7
 #define NODE_MAX_AGE 5
 #define NODE_MAX_VELOCITY 4
+
+#define NODE_STATE_SUSCEPTIBLE 0
+#define NODE_STATE_INFECTIOUS 1
+#define NODE_STATE_RECOVERED 2
+#define NODE_STATE_DEAD 3
 
 // Node 的行為模式：
 // 考量到 Node 移動特性，每個人對特定方向移動是有特定時間的 (age)
@@ -31,10 +41,12 @@ typedef struct _node {
 
     // Node 本身狀況參數
     double velocity[2];
-    int age;
+    int step;
+    short state, nextState;
+    short age;
 
     _node() {
-        this->index = _node::Node_Index_Incrementor++;
+        index = _node::Node_Index_Incrementor++;
 
         // Setup Initial Position
         // 產生最大小數位數為三位的位置
@@ -42,16 +54,22 @@ typedef struct _node {
         curPos[0] = rand() % (param.map_width * 1000) / 1000.0;
         curPos[1] = rand() % (param.map_height * 1000) / 1000.0;
 
-        // 產生一個 Age 和 Velocity
-        age = rand() % NODE_MAX_AGE + 1;
+        // 產生一個 Step 和 Velocity
+        step = rand() % NODE_MAX_AGE + 1;
         velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
 
-        cout << "[Node::constructor]: Node " << this->index << " Created with (" << curPos[0] << ", " << curPos[1] << ", " << velocity[0] << ", " << velocity[1] << ", " << age << ")" << endl;
+        // State
+        state = NODE_STATE_SUSCEPTIBLE;
+        age = 0;
+
+        // cout << "[Node::constructor]: Node " << this->index << " Created with (" << curPos[0] << ", " << curPos[1] << ", " << velocity[0] << ", " << velocity[1] << ", " << age << ") State = " << state << endl;
     }
 
-    // Node 的移動以及 Ageing 機制
+    // Node 的移動以及 Step 機制
     void move() {
+        if (state == NODE_STATE_DEAD) return;
+
         // 移動
         // [TODO]: 這裡只寫了個簡單的判斷式，會導致 Node 可能永遠走不到靠著邊界
         int tmpX = curPos[0] + velocity[0], tmpY = curPos[1] + velocity[1];
@@ -59,15 +77,37 @@ typedef struct _node {
         if (tmpY >= 0 && tmpY <= param.map_width) curPos[0] = tmpY;
 
         // Update Age
-        age -= 1;
+        step -= 1;
 
         // Check if need to update
-        if (age == 0) {
-            age = rand() % NODE_MAX_AGE + 1;
+        if (step == 0) {
+            step = rand() % NODE_MAX_AGE + 1;
             velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
             velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         }
     }
+
+    // 根據 Neighbor 的狀況去計算是否 Change State
+    // 這裡更新的東西是 next state，等到 move 的時候再一次更新
+    void stateTransfer(double rate) {
+        if (state == NODE_STATE_RECOVERED || state == NODE_STATE_DEAD) return;
+        else if (state == NODE_STATE_SUSCEPTIBLE) {
+            // 這個 State 需要 Check 感染機率
+            if (rate >= INFECTION_THRESHOLD) {
+                nextState = NODE_STATE_INFECTIOUS;
+                age = 0;
+            }
+        } else if (state == NODE_STATE_INFECTIOUS) {
+            // Infectious can turn into recoverd or dead
+            // 直接 Random 出一個 rate
+            double deadRate = rand() % 100 / 100.0;
+            double recoveryRate = rand() % 100 / 100.0;
+            if (deadRate < DeadProbability[age]) nextState = NODE_STATE_DEAD;
+            else if (recoveryRate < RecoveryRate[age]) nextState = NODE_STATE_RECOVERED;
+            age++;
+        }
+    }
+
 } Node;
 int Node::Node_Index_Incrementor = 1;
 
@@ -81,10 +121,21 @@ typedef struct _map {
 
     void generate_node() {
         // init node_list
-        this->node_list = new Node[param.node];
-
         // 把資料產生出來
-        cout << "[Map::generate_node]: Node List Initialized with #Node = " << param.node << " #Infectious = " << param.init_infected_node << endl;
+        node_list = new Node[param.node];
+
+        // 雖機散步 Infectious 的 Node
+        int tmp, counter = param.init_infected_node;
+        while (counter > 0) {
+            tmp = rand() % param.node;
+            if (node_list[tmp].state != NODE_STATE_INFECTIOUS) {
+                node_list[tmp].state = NODE_STATE_INFECTIOUS;
+                counter--;
+                cout << "[Map::generate_node]: Node " << node_list[tmp].index << " Set Infected." << endl;
+            }
+        }
+
+        // cout << "[Map::generate_node]: Node List Initialized with #Node = " << param.node << " #Infectious = " << param.init_infected_node << endl;
     }
 
     void random_walk(int iter = 1) {
@@ -103,6 +154,8 @@ typedef struct _map {
 } Map;
 
 void extractParam(Parameter * param, char *argv[]);
+inline double distance(Node &p1, Node &p2);
+inline double infectionRate(double dist);
 
 /*
     argv[1] --> Number of Iteration
@@ -128,6 +181,32 @@ int main(int argc, char *argv[]) {
     // Init Map
     Map map;
     map.generate_node();
+
+    // Algorithm Main Part
+    for (int iter = 0; iter < param.iter; iter++) {
+        // 總共要做這麼多輪
+        for (int n1 = 0; n1 < param.node; n1++) {
+            // Traverse Every Node & Check Neighbor
+            double total_infection_rate = 1;
+            if (map.node_list[n1].state == NODE_STATE_SUSCEPTIBLE) {
+                for (int n2 = 0; n2 < param.node; n2++) {
+                    if (n1 == n2 || map.node_list[n2].state != NODE_STATE_INFECTIOUS) continue;
+                    // Check Neighbor whether it's infected.
+                    double tmp_dist = distance(map.node_list[n1], map.node_list[n2]);
+                    if (tmp_dist <= param.max_infection_radius) {
+                        // Calculate Infection Rate of Each Node
+                        total_infection_rate *= infectionRate(tmp_dist);
+                    }
+                }
+                if (total_infection_rate == 1) total_infection_rate = 0;
+            } else {
+                total_infection_rate = 0;
+            }
+
+            // 確認是否需要換一個 State
+            map.node_list[n1].stateTransfer(total_infection_rate);
+        }
+    }
 
     return 0;
 }
@@ -155,4 +234,15 @@ void extractParam(Parameter * param, char *argv[]) {
     cout << left << setw(60) << "# Infection Ratio Alpha for Probability of Infection: " << param->alpha_constant << endl;
     cout << left << setw(60) << "# Infection Ratio Beta for Probability of Infection: " << param->beta_constant << endl;
     cout << endl << "*---------------------------------------------------------------------*" << endl;
+}
+
+// Distance 算數
+inline double distance(Node &p1, Node &p2) {
+    return sqrt(pow(p1.curPos[0] - p2.curPos[0], 2) + pow(p1.curPos[1] - p2.curPos[1], 2));
+}
+
+// Probability 算數
+inline double infectionRate(double dist) {
+    // 如果拿 alpha = 0.99(最大值) beta = 2.5 distance = 3 --> 接近 0
+    return param.alpha_constant * exp(-1 * dist * param.beta_constant);
 }
