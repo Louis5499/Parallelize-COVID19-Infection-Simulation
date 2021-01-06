@@ -22,7 +22,7 @@ const double DeadProbability[22] = {0.0, 0.001, 0.002, 0.004, 0.008, 0.014, 0.02
 const double RecoveryRate[22] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.31, 0.43, 0.57, 0.73, 0.91, 1.0};
 
 #define INFECTION_THRESHOLD 0.7
-#define NODE_MAX_AGE 5
+#define NODE_MAX_STEP 5
 #define NODE_MAX_VELOCITY 4
 
 #define NODE_STATE_SUSCEPTIBLE 0
@@ -55,7 +55,7 @@ typedef struct _node {
         curPos[1] = rand() % (param.map_height * 1000) / 1000.0;
 
         // 產生一個 Step 和 Velocity
-        step = rand() % NODE_MAX_AGE + 1;
+        step = rand() % NODE_MAX_STEP + 1;
         velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
 
@@ -84,7 +84,7 @@ typedef struct _node {
 
         // Check if need to update
         if (step == 0) {
-            step = rand() % NODE_MAX_AGE + 1;
+            step = rand() % NODE_MAX_STEP + 1;
             velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
             velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         }
