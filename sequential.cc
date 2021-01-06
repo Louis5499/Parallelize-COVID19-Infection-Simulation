@@ -18,7 +18,7 @@ typedef struct {
 Parameter param;
 
 #define NODE_MAX_AGE 5
-#define NODE_MAX_VELOCITY 8
+#define NODE_MAX_VELOCITY 4
 
 // Node 的行為模式：
 // 考量到 Node 移動特性，每個人對特定方向移動是有特定時間的 (age)
@@ -44,10 +44,29 @@ typedef struct _node {
 
         // 產生一個 Age 和 Velocity
         age = rand() % NODE_MAX_AGE + 1;
-        velocity[0] = rand() % (NODE_MAX_VELOCITY * 1000) / 1000.0;
-        velocity[1] = rand() % (NODE_MAX_VELOCITY * 1000) / 1000.0;
+        velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+        velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
 
         cout << "[Node::constructor]: Node " << this->index << " Created with (" << curPos[0] << ", " << curPos[1] << ", " << velocity[0] << ", " << velocity[1] << ", " << age << ")" << endl;
+    }
+
+    // Node 的移動以及 Ageing 機制
+    void move() {
+        // 移動
+        // [TODO]: 這裡只寫了個簡單的判斷式，會導致 Node 可能永遠走不到靠著邊界
+        int tmpX = curPos[0] + velocity[0], tmpY = curPos[1] + velocity[1];
+        if (tmpX >= 0 && tmpX <= param.map_width) curPos[0] = tmpX;
+        if (tmpY >= 0 && tmpY <= param.map_width) curPos[0] = tmpY;
+
+        // Update Age
+        age -= 1;
+
+        // Check if need to update
+        if (age == 0) {
+            age = rand() % NODE_MAX_AGE + 1;
+            velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+        }
     }
 } Node;
 int Node::Node_Index_Incrementor = 1;
@@ -72,6 +91,9 @@ typedef struct _map {
         for (int i = 0; i < iter; i++) {
             // Random Work，把每個點的位置都隨便亂移
             // [TODO]: 這裡搞不好可以優化些什麼
+            for (int j = 0; j < param.node; j++) {
+                node_list[j].move();
+            }
         }
     }
 
