@@ -69,6 +69,9 @@ typedef struct _node {
     // Node 的移動以及 Step 機制
     void move() {
         if (state == NODE_STATE_DEAD) return;
+        
+        // Update State
+        state = nextState;
 
         // 移動
         // [TODO]: 這裡只寫了個簡單的判斷式，會導致 Node 可能永遠走不到靠著邊界
@@ -131,7 +134,7 @@ typedef struct _map {
             if (node_list[tmp].state != NODE_STATE_INFECTIOUS) {
                 node_list[tmp].state = NODE_STATE_INFECTIOUS;
                 counter--;
-                cout << "[Map::generate_node]: Node " << node_list[tmp].index << " Set Infected." << endl;
+                // cout << "[Map::generate_node]: Node " << node_list[tmp].index << " Set Infected." << endl;
             }
         }
 
@@ -206,6 +209,8 @@ int main(int argc, char *argv[]) {
             // 確認是否需要換一個 State
             map.node_list[n1].stateTransfer(total_infection_rate);
         }
+        map.random_walk();
+        cout << "[Main]: Iteration " << iter << " Completed." << endl;
     }
 
     return 0;
