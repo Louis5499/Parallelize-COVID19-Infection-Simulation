@@ -78,7 +78,7 @@ typedef struct _node {
         // [TODO]: 這裡只寫了個簡單的判斷式，會導致 Node 可能永遠走不到靠著邊界
         int tmpX = curPos[0] + velocity[0], tmpY = curPos[1] + velocity[1];
         if (tmpX >= 0 && tmpX <= param.map_width) curPos[0] = tmpX;
-        if (tmpY >= 0 && tmpY <= param.map_width) curPos[0] = tmpY;
+        if (tmpY >= 0 && tmpY <= param.map_width) curPos[1] = tmpY;
 
         // Update Age
         step -= 1;
