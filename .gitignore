@@ -2,3 +2,8 @@
 
 # Compile Output File
 sequential
+omp-ver
+
+# GDB output file
+omp-ver.dSYM
+

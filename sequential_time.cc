@@ -2,7 +2,6 @@
 #include <iomanip>
 #include <stdlib.h>
 #include <cmath>
-#include <cassert>
 
 using namespace std;
 
@@ -30,6 +29,17 @@ const double RecoveryRate[22] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.
 #define NODE_STATE_INFECTIOUS 1
 #define NODE_STATE_RECOVERED 2
 #define NODE_STATE_DEAD 3
+
+struct timespec start, timeEnd;
+double iter_time=0.0, io_time=0.0, compute_time=0.0, input_time=0.0, output_time=0.0;
+double timeDiff(struct timespec start, struct timespec timeEnd){
+    // function used to measure time in nano resolution
+    float output;
+    float nano = 1000000000.0;
+    if(timeEnd.tv_nsec < start.tv_nsec) output = ((timeEnd.tv_sec - start.tv_sec -1)+(nano+timeEnd.tv_nsec-start.tv_nsec)/nano);
+    else output = ((timeEnd.tv_sec - start.tv_sec)+(timeEnd.tv_nsec-start.tv_nsec)/nano);
+    return output;
+}
 
 // Node 的行為模式：
 // 考量到 Node 移動特性，每個人對特定方向移動是有特定時間的 (age)
