@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <stdlib.h>
 #include <cmath>
@@ -78,7 +79,7 @@ typedef struct _node {
         // [TODO]: 這裡只寫了個簡單的判斷式，會導致 Node 可能永遠走不到靠著邊界
         int tmpX = curPos[0] + velocity[0], tmpY = curPos[1] + velocity[1];
         if (tmpX >= 0 && tmpX <= param.map_width) curPos[0] = tmpX;
-        if (tmpY >= 0 && tmpY <= param.map_width) curPos[1] = tmpY;
+        if (tmpY >= 0 && tmpY <= param.map_height) curPos[1] = tmpY;
 
         // Update Age
         step -= 1;
@@ -100,6 +101,8 @@ typedef struct _node {
             if (rate >= INFECTION_THRESHOLD) {
                 nextState = NODE_STATE_INFECTIOUS;
                 age = 0;
+            } else {
+                nextState = state;
             }
         } else if (state == NODE_STATE_INFECTIOUS) {
             // Infectious can turn into recoverd or dead
@@ -108,6 +111,7 @@ typedef struct _node {
             double recoveryRate = rand() % 100 / 100.0;
             if (deadRate < DeadProbability[age]) nextState = NODE_STATE_DEAD;
             else if (recoveryRate < RecoveryRate[age]) nextState = NODE_STATE_RECOVERED;
+            else nextState = state;
             age++;
         }
     }
@@ -150,6 +154,37 @@ typedef struct _map {
                 node_list[j].move();
             }
         }
+    }
+
+    void outputState(int iter) {
+        // Write out a JSON file
+        string fileName("Iteration-" + to_string(iter) + ".json");
+        string output("{\"Data\": [");
+
+        for (int i = 0; i < param.node; i++) {
+            output += "{";
+            output += "\"position\":[";
+            output += to_string(node_list[i].curPos[0]);
+            output += ", ";
+            output += to_string(node_list[i].curPos[1]);
+            output += "], \"state\":";
+            output += to_string(node_list[i].state);
+            output += "}";
+            output += ",";
+        }
+        // 把最後一個 comma 拿掉
+        output.pop_back();
+
+        // Ending
+        output += "]}";
+
+        // Write to File
+        ofstream outfile;
+        outfile.open(fileName);
+
+        outfile << output;
+        outfile.close();
+        cout << "[Map::outputState]: Data Successfully Being Wrote Out for Iteration " << iter << endl;
     }
 
     ~_map() {
@@ -210,6 +245,7 @@ int main(int argc, char *argv[]) {
             // 確認是否需要換一個 State
             map.node_list[n1].stateTransfer(total_infection_rate);
         }
+        map.outputState(iter);
         map.random_walk();
         cout << "[Main]: Iteration " << iter << " Completed." << endl;
     }

@@ -7,3 +7,5 @@ omp-ver
 # GDB output file
 omp-ver.dSYM
 
+# Output File
+Iteration-*
