@@ -87,8 +87,8 @@ typedef struct _node {
         // Check if need to update
         if (step == 0) {
             step = rand() % NODE_MAX_STEP + 1;
-            velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
-            velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[0] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[1] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         }
     }
 
