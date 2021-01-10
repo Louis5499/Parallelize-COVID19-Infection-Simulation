@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <omp.h>
 
 using namespace std;
 
@@ -62,6 +63,17 @@ void addElementToVector(int blockI, int blockJ, int newVal) {
     map_list_count[blockI][blockJ]++;
 }
 
+struct timespec start, timeEnd, perStart, perEnd;
+double per_compute_time=0.0, total_compute_time=0.0, highest_compute_time=0.0, lowest_compute_time=9999.0;
+double timeDiff(struct timespec start, struct timespec timeEnd){
+    // function used to measure time in nano resolution
+    float output;
+    float nano = 1000000000.0;
+    if(timeEnd.tv_nsec < start.tv_nsec) output = ((timeEnd.tv_sec - start.tv_sec -1)+(nano+timeEnd.tv_nsec-start.tv_nsec)/nano);
+    else output = ((timeEnd.tv_sec - start.tv_sec)+(timeEnd.tv_nsec-start.tv_nsec)/nano);
+    return output;
+}
+
 // Node 的行為模式：
 // 考量到 Node 移動特性，每個人對特定方向移動是有特定時間的 (age)
 // Age 在等於 0 的時候會產生一個新的數值，代表這個人在走幾次 Iteration 才會改變方向
@@ -89,8 +101,8 @@ typedef struct _node {
 
         // 產生一個 Step 和 Velocity
         step = rand() % NODE_MAX_STEP + 1;
-        velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
-        velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+        velocity[0] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+        velocity[1] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
 
         // State
         state = NODE_STATE_SUSCEPTIBLE;
@@ -131,8 +143,8 @@ typedef struct _node {
         // Check if need to update
         if (step == 0) {
             step = rand() % NODE_MAX_STEP + 1;
-            velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
-            velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[0] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[1] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         }
     }
 
@@ -240,55 +252,76 @@ int main(int argc, char *argv[]) {
     // Extract all Parameter to a Structure
     extractParam(&param, argv);
 
+    // Get Threads' Count
+    cpu_set_t cpu_set;
+    sched_getaffinity(0, sizeof(cpu_set), &cpu_set);
+    int ncpus = CPU_COUNT(&cpu_set);
+
     // Init Map
     Map map;
     map.generate_node();
 
+    clock_gettime(CLOCK_MONOTONIC, &start); // S---------------------------------------------------------------------------------
     // Algorithm Main Part
     for (int iter = 0; iter < param.iter; iter++) {
-        // 總共要做這麼多輪
-        for (int blockI = 0; blockI < blocksInWidth; blockI++) {
-            for (int blockJ = 0; blockJ < blocksInHeight; blockJ++) {
-                // TODO: Parallelize this phase, every thread responsible for a particular block
-                for (int iOffset = -1; iOffset <= 1; iOffset++) {
-                    for (int jOffset = -1; jOffset <= 1; jOffset++) {
-                        const int actualBlockI = blockI + iOffset;
-                        const int actualBlockJ = blockJ + jOffset;
+        #pragma omp parallel num_threads(ncpus) shared(map, map_list, map_list_count)
+        {
+            clock_gettime(CLOCK_MONOTONIC, &perStart); // S---------------------------------------------------------------------------------
+            // 總共要做這麼多輪
+            #pragma omp for schedule(guided) collapse(2) nowait
+            for (int blockI = 1; blockI < blocksInHeight - 1; blockI++) {
+                for (int blockJ = 1; blockJ < blocksInWidth - 1; blockJ++) {
+                    vector<int> inBlockNodeIdList;
+                    int blockNodeLen = 0;
+                    for (int iOffset = -1; iOffset <= 1; iOffset++) {
+                        for (int jOffset = -1; jOffset <= 1; jOffset++) {
+                            const int actualBlockI = blockI + iOffset;
+                            const int actualBlockJ = blockJ + jOffset;
 
-                        if (isExceedBoundary(actualBlockI, actualBlockJ)) continue;
+                            if (isExceedBoundary(actualBlockI, actualBlockJ)) continue;
 
-                        vector<int> inBlockNodeIdList = map_list[actualBlockI][actualBlockJ];
-                        int blockNodeLen = map_list_count[actualBlockI][actualBlockJ];
-
-                        for (int n1Idx = 0; n1Idx < blockNodeLen; n1Idx++) {
-                            const int n1 = inBlockNodeIdList[n1Idx];
-                            // Traverse Every Node & Check Neighbor
-                            double total_infection_rate = 1;
-                            if (map.node_list[n1].state == NODE_STATE_SUSCEPTIBLE) {
-                                for (int n2Idx = 0; n2Idx < blockNodeLen; n2Idx++) {
-                                    const int n2 = inBlockNodeIdList[n2Idx];
-                                    if (n1 == n2 || map.node_list[n2].state != NODE_STATE_INFECTIOUS) continue;
-                                    // Check Neighbor whether it's infected.
-                                    double tmp_dist = distance(map.node_list[n1], map.node_list[n2]);
-                                    if (tmp_dist <= param.max_infection_radius) {
-                                        // Calculate Infection Rate of Each Node
-                                        total_infection_rate *= infectionRate(tmp_dist);
-                                    }
-                                }
-                                if (total_infection_rate == 1) total_infection_rate = 0;
-                            } else {
-                                total_infection_rate = 0;
-                            }
-                            // 確認是否需要換一個 State
-                            map.node_list[n1].stateTransfer(total_infection_rate);
+                            inBlockNodeIdList.insert(inBlockNodeIdList.end(), map_list[actualBlockI][actualBlockJ].begin(), map_list[actualBlockI][actualBlockJ].end());
+                            blockNodeLen += map_list_count[actualBlockI][actualBlockJ];
                         }
                     }
-                } 
+
+                    for (int n1Idx = 0; n1Idx < blockNodeLen; n1Idx++) {
+                        const int n1 = inBlockNodeIdList[n1Idx];
+                        // Traverse Every Node & Check Neighbor
+                        double total_infection_rate = 1;
+                        if (map.node_list[n1].state == NODE_STATE_SUSCEPTIBLE) {
+                            for (int n2Idx = 0; n2Idx < blockNodeLen; n2Idx++) {
+                                const int n2 = inBlockNodeIdList[n2Idx];
+                                if (n1 == n2 || map.node_list[n2].state != NODE_STATE_INFECTIOUS) continue;
+                                // Check Neighbor whether it's infected.
+                                double tmp_dist = distance(map.node_list[n1], map.node_list[n2]);
+                                if (tmp_dist <= param.max_infection_radius) {
+                                    // Calculate Infection Rate of Each Node
+                                    total_infection_rate *= infectionRate(tmp_dist);
+                                }
+                            }
+                            if (total_infection_rate == 1) total_infection_rate = 0;
+                        } else {
+                            total_infection_rate = 0;
+                        }
+                        // 確認是否需要換一個 State
+                        map.node_list[n1].stateTransfer(total_infection_rate);
+                    }
+                }
             }
+            clock_gettime(CLOCK_MONOTONIC, &perEnd); // S---------------------------------------------------------------------------------
+            per_compute_time = timeDiff(perStart, perEnd);
+            if (per_compute_time > highest_compute_time) highest_compute_time = per_compute_time;
+            if (per_compute_time < lowest_compute_time) lowest_compute_time = per_compute_time;
         }
         map.random_walk();
         cout << "[Main]: Iteration " << iter << " Completed." << endl;
     }
+    clock_gettime(CLOCK_MONOTONIC, &timeEnd); // S---------------------------------------------------------------------------------
+    total_compute_time += timeDiff(start, timeEnd);
+    cout << "ncpus: " << ncpus << endl;
+    cout << "Highest: " << highest_compute_time  << "  Lowest: " << lowest_compute_time << endl;
+    cout << "Compute Time Elapse: " << total_compute_time  << "  avg: " << total_compute_time/ncpus << endl;
 
     return 0;
 }
