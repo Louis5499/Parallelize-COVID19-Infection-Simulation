@@ -4,6 +4,7 @@
 #include <curand.h>
 #include <omp.h>
 #include <cmath>
+#include <time.h>
 
 using namespace std;
 
@@ -78,6 +79,18 @@ inline double infectionRate(double dist) {
     return param.alpha_constant * exp(-1 * dist * param.beta_constant);
 }
 
+double calculateTime(timespec * start, timespec * end) {
+  timespec temp;
+  if ((end->tv_nsec - start->tv_nsec) < 0) {
+       temp.tv_sec = end->tv_sec-start->tv_sec-1;
+       temp.tv_nsec = 1000000000 + end->tv_nsec - start->tv_nsec;
+   } else {
+       temp.tv_sec = end->tv_sec - start->tv_sec;
+       temp.tv_nsec = end->tv_nsec - start->tv_nsec;
+   }
+   return temp.tv_sec + (double) temp.tv_nsec / 1000000000.0;
+}
+
 /*
     argv[1] --> Number of Iteration
     argv[2] --> Number of Nodes
@@ -98,6 +111,10 @@ int main(int argc, char *argv[]) {
 
     // Extract all Parameter to a Structure
     extractParam(&param, argv);
+
+    timespec start, end;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
 
     // 這邊考量到 Coleased Memory Access 的問題，把 X, Y 的位置分開儲存
     // 這裏可以寫兩個版本，一個是由 CPU 同時處理 Rand 的計算，另一是使用 curand
@@ -175,6 +192,9 @@ int main(int argc, char *argv[]) {
 
         // 從 Dist 拿回來後，開始計算
         // [TODO]: 這邊可以用 openmp 來處理
+#pragma omp parallel num_threads(16)
+{
+        #pragma omp for
         for (int n = 0; n < param.node; n++) {
             if (state[n] == NODE_STATE_RECOVERED || state[n] == NODE_STATE_DEAD) continue;
             float prob = 1;
@@ -188,10 +208,12 @@ int main(int argc, char *argv[]) {
             // 5. State 計算
             if (prob >= 0.1) nextState[n] = NODE_STATE_INFECTIOUS;
         }
-
+}
         cout << "Iteration: " << iter << " has completed." << endl;
     }
 
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    std::cout << "[0]Output Time: " << calculateTime(&start, &end) << "(sec)" << std::endl;
     // Free Cuda Resource
     cudaFree(dmapX);
     cudaFree(dmapY);
