@@ -9,3 +9,6 @@ omp-ver.dSYM
 
 # Output File
 Iteration-*
+
+.vscode
+.DS_Store
