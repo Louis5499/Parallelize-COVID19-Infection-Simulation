@@ -8,14 +8,14 @@ In our work, we both optimize the calculating by employing two parallelism techn
 In OpenMP Version, we proposed two ways: Blocked-Version and Row-Regioned-Version for parallelism.
 In CUDA Version, we proposed distance-based version.
 
-You may find the more specific implementation details by reviewing [our slides]().
+You may find the more specific implementation details by reviewing [our slides](https://github.com/Louis5499/Parallelize-COVID19-Infection-Simulation/blob/master/PP20-Final.pdf).
 
 ## Installation & Execution
 First of all, please make sure your environment has supported multi-threading and CUDA.
 ```shell
 # Execute Sequential Version
 make sequential
-make run-sequential
+make run-seq
 
 # Execute OpenMP Blocked Version
 make omp-ver-block
