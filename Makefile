@@ -11,29 +11,29 @@ TARGETS = main
 sequential:
 	$(CXX) $(CFLAGS) sequential.cc -o sequential
 
-omp-ver-block-time:
-		$(CXX) $(CFLAGS) omp-ver-block-time.cc -o omp-ver-block-time
+omp-ver-block:
+		$(CXX) $(CFLAGS) omp-ver-block.cc -o omp-ver-block
 
-omp-ver-region-time:
-		$(CXX) $(CFLAGS) omp-ver-region-time.cc -o omp-ver-region-time
+omp-ver-region:
+		$(CXX) $(CFLAGS) omp-ver-region.cc -o omp-ver-region
 
 run-seq:
 	./sequential 100 50000 5000 720 720 3 3 0.99 2.5
 
-run-omp-ver-block-time:
-	srun -n1 -c12 ./omp-ver-block-time 100 50000 5000 720 720 3 3 0.99 2.5
+run-omp-ver-block:
+	srun -n1 -c12 ./omp-ver-block 100 50000 5000 720 720 3 3 0.99 2.5
 
-run-omp-ver-region-time:
-	srun -n1 -c12 ./omp-ver-region-time 100 50000 5000 720 720 3 3 0.99 2.5
+run-omp-ver-region:
+	srun -n1 -c12 ./omp-ver-region 100 50000 5000 720 720 3 3 0.99 2.5
 
-run-omp-ver-block-time-exp:
+run-omp-ver-block-exp:
 	for number in 1 2 4 8 12 ; do \
-			srun -n1 -c$$number ./omp-ver-block-time 100 50000 5000 720 720 3 3 0.99 2.5 ; \
+			srun -n1 -c$$number ./omp-ver-block 100 50000 5000 720 720 3 3 0.99 2.5 ; \
 	done
 
-run-omp-ver-region-time-exp:
+run-omp-ver-region-exp:
 	for number in 1 2 4 8 12 ; do \
-			srun -n1 -c$$number ./omp-ver-region-time 100 50000 5000 720 720 3 3 0.99 2.5 ; \
+			srun -n1 -c$$number ./omp-ver-region 100 50000 5000 720 720 3 3 0.99 2.5 ; \
 	done
 
 clean:
