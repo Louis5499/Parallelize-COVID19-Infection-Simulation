@@ -1,9 +1,11 @@
 #include <iostream>
-#include <fstream>
 #include <iomanip>
 #include <stdlib.h>
 #include <cmath>
+#include <vector>
+#include <algorithm>
 #include <cassert>
+#include <omp.h>
 
 using namespace std;
 
@@ -32,14 +34,55 @@ const double RecoveryRate[22] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.
 #define NODE_STATE_RECOVERED 2
 #define NODE_STATE_DEAD 3
 
+vector<vector<vector<int>>> map_list(720, vector<vector<int>>(720, vector<int>(5000))); // [Important] Be aware of insufficient memory space. Please scale up node number (5000) in a block if required.
+vector<vector<int>> map_list_count(720, vector<int>(720, 0));
+
+int blocksInWidth;
+int blocksInHeight;
+int blockFactor;
+
+typedef struct _node Node;
+
+int* calcBlockPosOfNode(int widthPos, int heightPos, int *returnPosArr) {
+    returnPosArr[0] = widthPos / blockFactor; // For block width idx
+    returnPosArr[1] = heightPos / blockFactor; // For block height idx
+    return returnPosArr;
+}
+
+void removeElementFromVector(int blockI, int blockJ, int removeVal) {
+    vector<int> &intendVec = map_list[blockI][blockJ];
+    auto it = std::find(intendVec.begin(), intendVec.end(), removeVal);
+    if(it != intendVec.end()) intendVec.erase(it);
+    map_list_count[blockI][blockJ]--;
+}
+
+void addElementToVector(int blockI, int blockJ, int newVal) {
+    vector<int> &intendVec = map_list[blockI][blockJ];
+    int curIdx = map_list_count[blockI][blockJ];
+    intendVec[curIdx] = newVal;
+    map_list_count[blockI][blockJ]++;
+}
+
+struct timespec start, timeEnd, perStart, perEnd;
+double per_compute_time=0.0, total_compute_time=0.0, highest_compute_time=0.0, lowest_compute_time=9999.0;
+double timeDiff(struct timespec start, struct timespec timeEnd){
+    // function used to measure time in nano resolution
+    float output;
+    float nano = 1000000000.0;
+    if(timeEnd.tv_nsec < start.tv_nsec) output = ((timeEnd.tv_sec - start.tv_sec -1)+(nano+timeEnd.tv_nsec-start.tv_nsec)/nano);
+    else output = ((timeEnd.tv_sec - start.tv_sec)+(timeEnd.tv_nsec-start.tv_nsec)/nano);
+    return output;
+}
+
 // Node 的行為模式：
 // 考量到 Node 移動特性，每個人對特定方向移動是有特定時間的 (age)
 // Age 在等於 0 的時候會產生一個新的數值，代表這個人在走幾次 Iteration 才會改變方向
 typedef struct _node {
     static int Node_Index_Incrementor;
 
-    int index;                  // Node Index
+    int index;                  // Node Index is the same as array index of node_list.
     double curPos[2];           // 2D Map Position
+    int curBlockPos[2];
 
     // Node 本身狀況參數
     double velocity[2];
@@ -58,8 +101,8 @@ typedef struct _node {
 
         // 產生一個 Step 和 Velocity
         step = rand() % NODE_MAX_STEP + 1;
-        velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
-        velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+        velocity[0] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+        velocity[1] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
 
         // State
         state = NODE_STATE_SUSCEPTIBLE;
@@ -81,6 +124,19 @@ typedef struct _node {
         if (tmpX >= 0 && tmpX <= param.map_width) curPos[0] = tmpX;
         if (tmpY >= 0 && tmpY <= param.map_height) curPos[1] = tmpY;
 
+        // Confirm whether the node has jump to another block
+        int newBlockIdxs[2] = {0};
+        calcBlockPosOfNode(curPos[0], curPos[1], newBlockIdxs);
+        if (newBlockIdxs[0] != curBlockPos[0] || newBlockIdxs[1] != curBlockPos[1]) {
+            // 1. Remove from original block map
+            removeElementFromVector(curBlockPos[1], curBlockPos[0], index); // index == (Node_list 中此 Node 的 Array Index)
+            // 2. Add to new block map
+            addElementToVector(newBlockIdxs[1], newBlockIdxs[0], index); // index == (Node_list 中此 Node 的 Array Index)
+            // 3. Renew self data
+            curBlockPos[0] = newBlockIdxs[0];
+            curBlockPos[1] = newBlockIdxs[1];
+        }
+
         // Update Age
         step -= 1;
 
@@ -101,8 +157,6 @@ typedef struct _node {
             if (rate >= INFECTION_THRESHOLD) {
                 nextState = NODE_STATE_INFECTIOUS;
                 age = 0;
-            } else {
-                nextState = state;
             }
         } else if (state == NODE_STATE_INFECTIOUS) {
             // Infectious can turn into recoverd or dead
@@ -111,13 +165,12 @@ typedef struct _node {
             double recoveryRate = rand() % 100 / 100.0;
             if (deadRate < DeadProbability[age]) nextState = NODE_STATE_DEAD;
             else if (recoveryRate < RecoveryRate[age]) nextState = NODE_STATE_RECOVERED;
-            else nextState = state;
             age++;
         }
     }
 
 } Node;
-int Node::Node_Index_Incrementor = 1;
+int Node::Node_Index_Incrementor = 0;
 
 typedef struct _map {
     // Public Member
@@ -128,11 +181,15 @@ typedef struct _map {
     };
 
     void generate_node() {
+        // Calculating how many blocks in the map
+        blocksInWidth = param.map_width/blockFactor;
+        blocksInHeight = param.map_height/blockFactor;
+
         // init node_list
         // 把資料產生出來
         node_list = new Node[param.node];
 
-        // 雖機散步 Infectious 的 Node
+        // 隨機散佈 Infectious 的 Node
         int tmp, counter = param.init_infected_node;
         while (counter > 0) {
             tmp = rand() % param.node;
@@ -143,6 +200,14 @@ typedef struct _map {
             }
         }
 
+        // Distribute node to corresponding block
+        for (int i=0; i<param.node; i++) {
+            int blockIdx[2] = {0};
+            calcBlockPosOfNode(node_list[i].curPos[0], node_list[i].curPos[1], blockIdx);
+            node_list[i].curBlockPos[0] = blockIdx[0];
+            node_list[i].curBlockPos[1] = blockIdx[1];
+            addElementToVector(blockIdx[1], blockIdx[0], i);
+        }
         // cout << "[Map::generate_node]: Node List Initialized with #Node = " << param.node << " #Infectious = " << param.init_infected_node << endl;
     }
 
@@ -156,37 +221,6 @@ typedef struct _map {
         }
     }
 
-    void outputState(int iter) {
-        // Write out a JSON file
-        string fileName("Iteration-" + to_string(iter) + ".json");
-        string output("{\"Data\": [");
-
-        for (int i = 0; i < param.node; i++) {
-            output += "{";
-            output += "\"position\":[";
-            output += to_string(node_list[i].curPos[0]);
-            output += ", ";
-            output += to_string(node_list[i].curPos[1]);
-            output += "], \"state\":";
-            output += to_string(node_list[i].state);
-            output += "}";
-            output += ",";
-        }
-        // 把最後一個 comma 拿掉
-        output.pop_back();
-
-        // Ending
-        output += "]}";
-
-        // Write to File
-        ofstream outfile;
-        outfile.open(fileName);
-
-        outfile << output;
-        outfile.close();
-        cout << "[Map::outputState]: Data Successfully Being Wrote Out for Iteration " << iter << endl;
-    }
-
     ~_map() {
         delete [] this->node_list;
     };
@@ -195,6 +229,7 @@ typedef struct _map {
 void extractParam(Parameter * param, char *argv[]);
 inline double distance(Node &p1, Node &p2);
 inline double infectionRate(double dist);
+inline bool isExceedBoundary(int i, int j);
 
 /*
     argv[1] --> Number of Iteration
@@ -217,38 +252,73 @@ int main(int argc, char *argv[]) {
     // Extract all Parameter to a Structure
     extractParam(&param, argv);
 
+    // Get Threads' Count
+    cpu_set_t cpu_set;
+    sched_getaffinity(0, sizeof(cpu_set), &cpu_set);
+    int ncpus = CPU_COUNT(&cpu_set);
+
     // Init Map
     Map map;
     map.generate_node();
 
+    clock_gettime(CLOCK_MONOTONIC, &start); // S---------------------------------------------------------------------------------
     // Algorithm Main Part
     for (int iter = 0; iter < param.iter; iter++) {
-        // 總共要做這麼多輪
-        for (int n1 = 0; n1 < param.node; n1++) {
-            // Traverse Every Node & Check Neighbor
-            double total_infection_rate = 1;
-            if (map.node_list[n1].state == NODE_STATE_SUSCEPTIBLE) {
-                for (int n2 = 0; n2 < param.node; n2++) {
-                    if (n1 == n2 || map.node_list[n2].state != NODE_STATE_INFECTIOUS) continue;
-                    // Check Neighbor whether it's infected.
-                    double tmp_dist = distance(map.node_list[n1], map.node_list[n2]);
-                    if (tmp_dist <= param.max_infection_radius) {
-                        // Calculate Infection Rate of Each Node
-                        total_infection_rate *= infectionRate(tmp_dist);
+        #pragma omp parallel num_threads(ncpus) shared(map, map_list, map_list_count)
+        {
+            clock_gettime(CLOCK_MONOTONIC, &perStart); // S---------------------------------------------------------------------------------
+            // 總共要做這麼多輪
+            #pragma omp for schedule(guided) collapse(1) nowait
+            for (int blockI = 1; blockI < blocksInHeight - 1; blockI++) {
+                vector<int> inBlockNodeIdList;
+                int blockNodeLen = 0;
+                for (int blockJ = 0; blockJ < blocksInWidth; blockJ++) {
+                    for (int iOffset = -1; iOffset <= 1; iOffset++) {
+                        const int actualBlockI = blockI + iOffset;
+
+                        if (isExceedBoundary(actualBlockI, blockJ)) continue;
+
+                        inBlockNodeIdList.insert(inBlockNodeIdList.end(), map_list[actualBlockI][blockJ].begin(), map_list[actualBlockI][blockJ].end());
+                        blockNodeLen += map_list_count[actualBlockI][blockJ];
                     }
                 }
-                if (total_infection_rate == 1) total_infection_rate = 0;
-            } else {
-                total_infection_rate = 0;
-            }
 
-            // 確認是否需要換一個 State
-            map.node_list[n1].stateTransfer(total_infection_rate);
+                for (int n1Idx = 0; n1Idx < blockNodeLen; n1Idx++) {
+                    const int n1 = inBlockNodeIdList[n1Idx];
+                    // Traverse Every Node & Check Neighbor
+                    double total_infection_rate = 1;
+                    if (map.node_list[n1].state == NODE_STATE_SUSCEPTIBLE) {
+                        for (int n2Idx = 0; n2Idx < blockNodeLen; n2Idx++) {
+                            const int n2 = inBlockNodeIdList[n2Idx];
+                            if (n1 == n2 || map.node_list[n2].state != NODE_STATE_INFECTIOUS) continue;
+                            // Check Neighbor whether it's infected.
+                            double tmp_dist = distance(map.node_list[n1], map.node_list[n2]);
+                            if (tmp_dist <= param.max_infection_radius) {
+                                // Calculate Infection Rate of Each Node
+                                total_infection_rate *= infectionRate(tmp_dist);
+                            }
+                        }
+                        if (total_infection_rate == 1) total_infection_rate = 0;
+                    } else {
+                        total_infection_rate = 0;
+                    }
+                    // 確認是否需要換一個 State
+                    map.node_list[n1].stateTransfer(total_infection_rate);
+                }
+            }
+            clock_gettime(CLOCK_MONOTONIC, &perEnd); // S---------------------------------------------------------------------------------
+            per_compute_time = timeDiff(perStart, perEnd);
+            if (per_compute_time > highest_compute_time) highest_compute_time = per_compute_time;
+            if (per_compute_time < lowest_compute_time) lowest_compute_time = per_compute_time;
         }
-        map.outputState(iter);
         map.random_walk();
         cout << "[Main]: Iteration " << iter << " Completed." << endl;
     }
+    clock_gettime(CLOCK_MONOTONIC, &timeEnd); // S---------------------------------------------------------------------------------
+    total_compute_time += timeDiff(start, timeEnd);
+    cout << "ncpus: " << ncpus << endl;
+    cout << "Highest: " << highest_compute_time  << "  Lowest: " << lowest_compute_time << endl;
+    cout << "Compute Time Elapse: " << total_compute_time  << "  avg: " << total_compute_time/ncpus << endl;
 
     return 0;
 }
@@ -263,6 +333,9 @@ void extractParam(Parameter * param, char *argv[]) {
     param->max_infection_radius = atof(argv[7]);
     param->alpha_constant = atof(argv[8]);
     param->beta_constant = atof(argv[9]);
+
+    // We initilize the blocking factor to infection radius. As a result, whenever we want to check how many people get infection under blocking version code, we only need to calculate adjacent blocks (9宮格) to check infection.
+    blockFactor = param->max_infection_radius;
 
     // Self-Checking
     cout << "*---------------------------Input Parameter---------------------------*" << endl << endl;
@@ -287,4 +360,11 @@ inline double distance(Node &p1, Node &p2) {
 inline double infectionRate(double dist) {
     // 如果拿 alpha = 0.99(最大值) beta = 2.5 distance = 3 --> 接近 0
     return param.alpha_constant * exp(-1 * dist * param.beta_constant);
+}
+
+// 確保目前計算的 Block 沒有超過邊界
+inline bool isExceedBoundary(int i, int j) {
+    if (i < 0 || i >= param.map_height) return true;
+    else if (j < 0 || j >= param.map_width) return true;
+    else return false;
 }

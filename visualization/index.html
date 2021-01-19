@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <!-- Load d3.js -->
+    <script src="https://d3js.org/d3.v4.js"></script>
+    <script src="https://cdn.rawgit.com/eligrey/canvas-toBlob.js/f1a01896135ab378aa5c0118eadd81da55e698d8/canvas-toBlob.js"></script>
+    <script src="https://cdn.rawgit.com/eligrey/FileSaver.js/e9d941381475b5df8b7d7691013401e171014e89/FileSaver.min.js"></script>
+  </head>
+  <body>
+    <!-- Create a div where the graph will take place -->
+    <div id="my_dataviz"></div>
+  </body>
+</html>
+
+<script>
+  // set the dimensions and margins of the graph
+  var margin = {top: 10, right: 30, bottom: 30, left: 60},
+      width = 1280 - margin.left - margin.right,
+      height = 1280 - margin.top - margin.bottom;
+
+  console.log("Intialization succeed!");
+
+  const generatePicture = function (iteration) {
+    return new Promise((res, rej) => {
+      // append the svg object to the body of the page
+      var svg = d3.select("#my_dataviz")
+        .append("svg")
+          .attr("width", width + margin.left + margin.right)
+          .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+          .attr("transform",
+                "translate(" + margin.left + "," + margin.top + ")");
+      //Read the data
+      d3.json(`./outputs/Iteration-${iteration}.json`, function(data) {
+
+      console.log("Generating graphs");
+      dataset = data.Data;
+
+      // Add X axis
+      var x = d3.scaleLinear()
+        .domain([0, 720])
+        .range([ 0, width ]);
+      svg.append("g")
+        .attr("transform", "translate(0," + height + ")")
+        .call(d3.axisBottom(x));
+
+      // Add Y axis
+      var y = d3.scaleLinear()
+        .domain([0, 720])
+        .range([ height, 0]);
+      svg.append("g")
+        .call(d3.axisLeft(y));
+
+      // Add dots
+      svg.append('g')
+        .selectAll("dot")
+        .data(dataset)
+        .enter()
+        .append("circle")
+          .attr("cx", function (d) { return x(d.position[0]); } )
+          .attr("cy", function (d) { return y(d.position[1]); } )
+          .attr("r", 1.5)
+          .style("fill", function (d) {
+            if (d.state === 0) { return '#fad586' } // NODE_STATE_SUSCEPTIBLE
+            else if (d.state === 1) { return '#ef4f4f' } // NODE_STATE_INFECTIOUS
+            else if (d.state === 2) { return '#69b3a2' } // NODE_STATE_RECOVERED
+            else { return '#dddddd' } // NODE_STATE_DEAD
+          })
+      })
+
+      setTimeout(() => {
+        const svg = document.querySelector('svg').cloneNode(true); // clone your original svg
+        document.body.appendChild(svg); // append element to document
+        const g = svg.querySelector('g') // select the parent g
+        g.setAttribute('transform', '') // clean transform
+        svg.setAttribute('width', g.getBBox().width) // set svg to be the g dimensions
+        svg.setAttribute('height', g.getBBox().height)
+        const svgAsXML = (new XMLSerializer).serializeToString(svg);
+        const svgData = `data:image/svg+xml,${encodeURIComponent(svgAsXML)}`
+        const link = document.createElement("a");
+        document.body.appendChild(link); 
+        link.setAttribute("href", svgData);
+        link.setAttribute("download", `image-${iteration}.svg`);
+        link.click();
+        d3.select("svg").remove();
+        res();
+
+        // var svgString = getSVGString(d3.select('svg').node());
+        // svgString2Image( svgString, 2*g.getBBox().width, 2*g.getBBox().height, 'png', save ); // passes Blob and filesize String to the callback
+
+        // function save( dataBlob, filesize ){
+        //   saveAs( dataBlob, `pic-${iteration}.png` ); // FileSaver.js function
+        //   d3.select("svg").remove();
+        //   res();
+        // }
+
+        // function getSVGString( svgNode ) {
+        //   svgNode.setAttribute('xlink', 'http://www.w3.org/1999/xlink');
+        //   var cssStyleText = getCSSStyles( svgNode );
+        //   appendCSS( cssStyleText, svgNode );
+
+        //   var serializer = new XMLSerializer();
+        //   var svgString = serializer.serializeToString(svgNode);
+        //   svgString = svgString.replace(/(\w+)?:?xlink=/g, 'xmlns:xlink='); // Fix root xlink without namespace
+        //   svgString = svgString.replace(/NS\d+:href/g, 'xlink:href'); // Safari NS namespace fix
+
+        //   return svgString;
+
+        //   function getCSSStyles( parentElement ) {
+        //     var selectorTextArr = [];
+
+        //     // Add Parent element Id and Classes to the list
+        //     selectorTextArr.push( '#'+parentElement.id );
+        //     for (var c = 0; c < parentElement.classList.length; c++)
+        //         if ( !contains('.'+parentElement.classList[c], selectorTextArr) )
+        //           selectorTextArr.push( '.'+parentElement.classList[c] );
+
+        //     // Add Children element Ids and Classes to the list
+        //     var nodes = parentElement.getElementsByTagName("*");
+        //     for (var i = 0; i < nodes.length; i++) {
+        //       var id = nodes[i].id;
+        //       if ( !contains('#'+id, selectorTextArr) )
+        //         selectorTextArr.push( '#'+id );
+
+        //       var classes = nodes[i].classList;
+        //       for (var c = 0; c < classes.length; c++)
+        //         if ( !contains('.'+classes[c], selectorTextArr) )
+        //           selectorTextArr.push( '.'+classes[c] );
+        //     }
+
+        //     // Extract CSS Rules
+        //     var extractedCSSText = "";
+        //     for (var i = 0; i < document.styleSheets.length; i++) {
+        //       var s = document.styleSheets[i];
+              
+        //       try {
+        //           if(!s.cssRules) continue;
+        //       } catch( e ) {
+        //             if(e.name !== 'SecurityError') throw e; // for Firefox
+        //             continue;
+        //           }
+
+        //       var cssRules = s.cssRules;
+        //       for (var r = 0; r < cssRules.length; r++) {
+        //         if ( contains( cssRules[r].selectorText, selectorTextArr ) )
+        //           extractedCSSText += cssRules[r].cssText;
+        //       }
+        //     }
+            
+
+        //     return extractedCSSText;
+
+        //     function contains(str,arr) {
+        //       return arr.indexOf( str ) === -1 ? false : true;
+        //     }
+
+        //   }
+
+        //   function appendCSS( cssText, element ) {
+        //     var styleElement = document.createElement("style");
+        //     styleElement.setAttribute("type","text/css"); 
+        //     styleElement.innerHTML = cssText;
+        //     var refNode = element.hasChildNodes() ? element.children[0] : null;
+        //     element.insertBefore( styleElement, refNode );
+        //   }
+        // }
+
+
+        // function svgString2Image( svgString, width, height, format, callback ) {
+        //   var format = format ? format : 'png';
+
+        //   var imgsrc = 'data:image/svg+xml;base64,'+ btoa( unescape( encodeURIComponent( svgString ) ) ); // Convert SVG string to data URL
+
+        //   var canvas = document.createElement("canvas");
+        //   var context = canvas.getContext("2d");
+
+        //   canvas.width = width;
+        //   canvas.height = height;
+
+        //   var image = new Image();
+        //   image.onload = function() {
+        //     context.clearRect ( 0, 0, width, height );
+        //     context.drawImage(image, 0, 0, width, height);
+
+        //     canvas.toBlob( function(blob) {
+        //       var filesize = Math.round( blob.length/1024 ) + ' KB';
+        //       if ( callback ) callback( blob, filesize );
+        //     });
+
+            
+        //   };
+
+        //   image.src = imgsrc;
+        // }
+      }, 6000);
+    });
+  };
+
+  (async function generatePictures() {
+    for (let i=0; i<30; i++) {
+      await generatePicture(i);
+    }
+  })();
+  
+</script>

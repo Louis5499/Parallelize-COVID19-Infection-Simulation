@@ -1,9 +1,7 @@
 #include <iostream>
-#include <fstream>
 #include <iomanip>
 #include <stdlib.h>
 #include <cmath>
-#include <cassert>
 
 using namespace std;
 
@@ -31,6 +29,17 @@ const double RecoveryRate[22] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.
 #define NODE_STATE_INFECTIOUS 1
 #define NODE_STATE_RECOVERED 2
 #define NODE_STATE_DEAD 3
+
+struct timespec start, timeEnd;
+double iter_time=0.0, io_time=0.0, compute_time=0.0, input_time=0.0, output_time=0.0;
+double timeDiff(struct timespec start, struct timespec timeEnd){
+    // function used to measure time in nano resolution
+    float output;
+    float nano = 1000000000.0;
+    if(timeEnd.tv_nsec < start.tv_nsec) output = ((timeEnd.tv_sec - start.tv_sec -1)+(nano+timeEnd.tv_nsec-start.tv_nsec)/nano);
+    else output = ((timeEnd.tv_sec - start.tv_sec)+(timeEnd.tv_nsec-start.tv_nsec)/nano);
+    return output;
+}
 
 // Node 的行為模式：
 // 考量到 Node 移動特性，每個人對特定方向移動是有特定時間的 (age)
@@ -79,7 +88,7 @@ typedef struct _node {
         // [TODO]: 這裡只寫了個簡單的判斷式，會導致 Node 可能永遠走不到靠著邊界
         int tmpX = curPos[0] + velocity[0], tmpY = curPos[1] + velocity[1];
         if (tmpX >= 0 && tmpX <= param.map_width) curPos[0] = tmpX;
-        if (tmpY >= 0 && tmpY <= param.map_height) curPos[1] = tmpY;
+        if (tmpY >= 0 && tmpY <= param.map_width) curPos[1] = tmpY;
 
         // Update Age
         step -= 1;
@@ -87,8 +96,8 @@ typedef struct _node {
         // Check if need to update
         if (step == 0) {
             step = rand() % NODE_MAX_STEP + 1;
-            velocity[0] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
-            velocity[1] = rand() % ((NODE_MAX_VELOCITY * 2 + 1) * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[0] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
+            velocity[1] = rand() % (NODE_MAX_VELOCITY * 2 * 1000) / 1000.0 - NODE_MAX_VELOCITY;
         }
     }
 
@@ -101,8 +110,6 @@ typedef struct _node {
             if (rate >= INFECTION_THRESHOLD) {
                 nextState = NODE_STATE_INFECTIOUS;
                 age = 0;
-            } else {
-                nextState = state;
             }
         } else if (state == NODE_STATE_INFECTIOUS) {
             // Infectious can turn into recoverd or dead
@@ -111,7 +118,6 @@ typedef struct _node {
             double recoveryRate = rand() % 100 / 100.0;
             if (deadRate < DeadProbability[age]) nextState = NODE_STATE_DEAD;
             else if (recoveryRate < RecoveryRate[age]) nextState = NODE_STATE_RECOVERED;
-            else nextState = state;
             age++;
         }
     }
@@ -154,37 +160,6 @@ typedef struct _map {
                 node_list[j].move();
             }
         }
-    }
-
-    void outputState(int iter) {
-        // Write out a JSON file
-        string fileName("Iteration-" + to_string(iter) + ".json");
-        string output("{\"Data\": [");
-
-        for (int i = 0; i < param.node; i++) {
-            output += "{";
-            output += "\"position\":[";
-            output += to_string(node_list[i].curPos[0]);
-            output += ", ";
-            output += to_string(node_list[i].curPos[1]);
-            output += "], \"state\":";
-            output += to_string(node_list[i].state);
-            output += "}";
-            output += ",";
-        }
-        // 把最後一個 comma 拿掉
-        output.pop_back();
-
-        // Ending
-        output += "]}";
-
-        // Write to File
-        ofstream outfile;
-        outfile.open(fileName);
-
-        outfile << output;
-        outfile.close();
-        cout << "[Map::outputState]: Data Successfully Being Wrote Out for Iteration " << iter << endl;
     }
 
     ~_map() {
@@ -245,7 +220,6 @@ int main(int argc, char *argv[]) {
             // 確認是否需要換一個 State
             map.node_list[n1].stateTransfer(total_infection_rate);
         }
-        map.outputState(iter);
         map.random_walk();
         cout << "[Main]: Iteration " << iter << " Completed." << endl;
     }
